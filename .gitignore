@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+Cargo.lock
+.idea/
+.vscode/
+*.pdb
+# proptest only writes here when a property fails and persists a case
+/proptest-regressions

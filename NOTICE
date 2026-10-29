@@ -1,0 +1,21 @@
+brigaxsir (Rust port)
+=====================
+
+This crate is a Rust port of Mojang's Brigadier:
+https://github.com/Mojang/brigadier
+
+Brigadier is Copyright (c) Mojang AB and is licensed under the MIT License.
+
+The initial module layout, public API shape and a substantial part of the
+implementation in this crate are adapted from azalea-brigadier:
+
+    azalea-brigadier
+    https://github.com/azalea-rs/azalea/tree/main/azalea-brigadier
+    Copyright (c) 2022 mat
+    Licensed under the MIT License
+
+Changes made for this crate: the package and imports are named `brigaxsir`,
+the `azalea-buf`, `azalea-chat` and `bevy_*` dependencies and the
+corresponding feature were removed, `parking_lot` is pinned to 0.11, and tests
+and documentation were adjusted. Behaviour that differs from the Java original
+is documented in `notes.md` at the repository root.

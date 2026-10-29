@@ -1,0 +1,10 @@
+# The CI advisories job runs `cargo deny check advisories` — that is the whole
+# scope for now: vulnerable, unmaintained and yanked crates in the dependency
+# graph. License, ban and source audits can be switched on later from here
+# without touching the workflow.
+
+[advisories]
+version = 2
+vulnerable = "deny"
+unmaintained = "warn"
+yanked = "deny"

@@ -1,0 +1,61 @@
+[package]
+name = "brigaxsir"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A Rust port of Mojang's Brigadier command parsing and dispatching library"
+license = "MIT"
+readme = "README.md"
+keywords = ["brigadier", "command", "parser", "minecraft", "cli"]
+categories = ["parsing", "parser-implementations"]
+# placeholder: point at the real repository once this crate gets its remote
+repository = "https://github.com/brigaxsir/brigaxsir"
+# the host toolchain pin (windows-gnu) is a maintainer-machine concern: a
+# crates.io consumer extracting the crate on Linux would have rustup chase a
+# windows toolchain otherwise
+exclude = ["rust-toolchain.toml"]
+
+[dependencies]
+indexmap = "2"
+parking_lot = "0.11"
+
+[dev-dependencies]
+# criterion 0.5 (not 0.7+): 0.5's dependency tree is pure Rust, while newer
+# lines pull getrandom versions that use windows-link/raw-dylib linkage
+# needing dlltool.exe on PATH on windows-gnu - the same constraint that
+# pinned proptest below (notes.md §1). Verified empirically: 0.5 builds
+# clean here.
+criterion = "0.5"
+# default-features off: the "fork"/"timeout" extras pull rusty-fork ->
+# tempfile -> getrandom, and proptest >= 1.7 moved to rand 0.9/0.10 whose
+# getrandom (0.3/0.4) uses raw-dylib linkage needing dlltool.exe on
+# windows-gnu - not on this toolchain's PATH (notes.md §1). proptest 1.5/1.6
+# (rand 0.8, getrandom 0.2) compiles clean; the property tests only need the
+# core generator/shrinker (std), which is pure Rust.
+proptest = { version = ">=1.5.0, <1.7.0", default-features = false, features = ["std"] }
+
+[[bench]]
+name = "parsing_benchmarks"
+harness = false
+
+[[bench]]
+name = "execute_benchmarks"
+harness = false
+
+[lints.rust]
+unsafe_code = "deny"
+# missing_docs = "deny" lives in src/lib.rs instead of here: the [lints] table
+# applies to every target (benches/tests too, where criterion's macro output
+# and integration-test crates are undocumented by nature) and cannot be
+# scoped per target.
+
+[lints.clippy]
+# priority -1: the section-level lints below must override the group
+all = { level = "warn", priority = -1 }
+# Deliberately NOT enabled (not even at warn): unwrap_used/expect_used are
+# restriction lints, and the CI clippy job runs with `-D warnings`, which
+# upgrades every warn to an error — enabling them here would break the build
+# immediately, since the crate's documented invariants lean on `expect` (the
+# Java panic/IllegalArgumentException-parity sites). Panic documentation IS
+# enforced, which is the policy that actually matters here.
+missing_panics_doc = "deny"

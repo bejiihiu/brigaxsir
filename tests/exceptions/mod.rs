@@ -1,0 +1,5 @@
+mod builtin_exceptions_test;
+mod custom_command_exception_type_test;
+mod dynamic_command_syntax_exception_type_test;
+mod dynamic_variants_command_exception_type_test;
+mod simple_command_syntax_exception_type_test;

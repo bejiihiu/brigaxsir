@@ -1,0 +1,139 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The strict gate: everything the local quality bar runs, on a native
+  # Linux stable toolchain.
+  linux:
+    name: linux (stable) — strict gate
+    runs-on: ubuntu-latest
+    # The repo's rust-toolchain.toml pins stable-x86_64-pc-windows-gnu (the
+    # maintainer's host). That toolchain cannot run on a Linux runner, so
+    # RUSTUP_TOOLCHAIN overrides the toolchain file for this whole job and a
+    # native Linux stable toolchain is used instead.
+    env:
+      RUSTUP_TOOLCHAIN: stable
+      # Rustdoc warnings fail the build — matches the local "docs build
+      # warning-free" gate. Also applies to doctest compilation.
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup component add rustfmt clippy
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: tests (unit, integration, doc)
+        run: cargo test --all-features
+      - name: docs
+        run: cargo doc --no-deps
+      - name: examples
+        run: cargo build --examples
+
+  # Compile-only gate for the crate's declared MSRV. Cargo.lock is not
+  # committed (library), so dependencies resolve fresh — an MSRV bump in a
+  # dependency can fail this job independently of this crate's own code.
+  msrv:
+    name: msrv (1.88)
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: "1.88.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 1.88.0
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Compiles on the declared MSRV
+        run: cargo check --all-features --all-targets
+
+  # Best-effort on purpose. The crate's primary target is x86_64-pc-windows-gnu
+  # (GNU-only toolchain policy, see notes), but the windows-latest runner image
+  # ships mingw-w64 in a location that changes between image revisions, and the
+  # windows-gnu toolchain is fetched per run — so this job can rot for reasons
+  # unrelated to the code. The Linux job above is the strict gate; this one
+  # still catches windows-gnu regressions whenever it happens to run.
+  windows-gnu:
+    name: windows-latest (x86_64-pc-windows-gnu) — best effort
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Put a mingw-w64 on PATH (gcc linker + dlltool for raw-dylib deps)
+        shell: pwsh
+        run: |
+          # Known locations across runner image revisions: current images keep
+          # an MSYS2 mingw64 toolchain at C:\msys64 (not on PATH); older ones
+          # exposed the chocolatey 'mingw' package; Strawberry Perl ships a
+          # mingw-w64 gcc too. First hit wins, chocolatey installs a fallback
+          # if none of them exist. dlltool from the same directory is what
+          # rustc needs to link the raw-dylib windows-sys crates pulled in by
+          # criterion/proptest.
+          $candidates = @(
+            (Get-Command gcc.exe -ErrorAction SilentlyContinue)[0].Source,
+            'C:\msys64\mingw64\bin',
+            'C:\ProgramData\mingw64\mingw64\bin',
+            'C:\mingw64\bin',
+            'C:\Strawberry\c\bin'
+          )
+          $mingw = $candidates |
+            Where-Object { $_ -and (Test-Path (Join-Path $_ 'gcc.exe')) } |
+            Select-Object -First 1
+          if (-not $mingw) {
+            choco install mingw -y --no-progress
+            $mingw = (Get-ChildItem 'C:\ProgramData\chocolatey\lib\mingw' -Recurse -Filter gcc.exe |
+                      Select-Object -First 1).DirectoryName
+          }
+          if (-not $mingw) { throw 'No mingw-w64 gcc available on the runner image' }
+          Add-Content $env:GITHUB_PATH $mingw
+          Write-Host "Using mingw-w64 from $mingw"
+      - name: Build
+        shell: pwsh
+        env:
+          # .cargo/config.toml hardcodes the maintainer's local linker path;
+          # override it with the mingw gcc this job just put on PATH. The
+          # rust-toolchain.toml file makes rustup fetch
+          # stable-x86_64-pc-windows-gnu on demand — the crate's primary
+          # target. --all-targets includes the criterion benches, the
+          # dlltool-sensitive part `cargo test` does not compile.
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: gcc
+        run: cargo build --all-features --all-targets
+      - name: Test
+        shell: pwsh
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: gcc
+        run: cargo test --all-features
+
+  # Advisory-only scan (vulnerable + yanked + unmaintained crates in the
+  # dependency graph). License/ban/source checks are deliberately out of scope
+  # for now; switch them on in deny.toml without touching this job. Advisory
+  # failures may come from freshly published advisories, so the official
+  # recommendation is to keep this job non-blocking.
+  advisories:
+    name: advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      # Same reason as the Linux job: the toolchain file pins a windows-gnu
+      # host that cannot run here; cargo metadata only needs a native cargo.
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
